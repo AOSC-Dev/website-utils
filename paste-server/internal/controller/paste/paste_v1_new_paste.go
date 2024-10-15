@@ -2,12 +2,14 @@ package paste
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/gogf/gf/v2/encoding/gjson"
 	"github.com/gogf/gf/v2/errors/gcode"
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gfile"
+	"github.com/gogf/gf/v2/os/gtime"
 	"github.com/google/uuid"
 
 	v1 "pasteServer/api/paste/v1"
@@ -18,12 +20,23 @@ func (c *ControllerV1) NewPaste(ctx context.Context, req *v1.NewPasteReq) (res *
 	pasteId := uuid.New().String()
 	res = &v1.NewPasteRes{Id: pasteId}
 
+	fmt.Println(req.ExpDate)
+
+	// 如果过期时间为空,默认生成7天后过期
+	if req.ExpDate == "" {
+		now := gtime.Now()
+		now = now.AddDate(0, 0, 7)
+		req.ExpDate = now.String()[:10]
+	}
+	expDate, _ := gtime.StrToTime(req.ExpDate + " 00:00:00")
+
 	gfile.Mkdir(consts.PasteContentPath + pasteId)
 	pasteContent := v1.PasteContent{
-		Content:  req.Content,
-		Language: req.Language,
-		Title:    req.Title,
-		ExpDate:  req.ExpDate,
+		Content:   req.Content,
+		Language:  req.Language,
+		Title:     req.Title,
+		ExpDate:   req.ExpDate,
+		ExpDateTs: expDate.Timestamp(),
 	}
 
 	if req.FileList != nil {

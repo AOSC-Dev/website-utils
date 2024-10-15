@@ -1,0 +1,9 @@
+### 新建粘贴板
+POST http://localhost:8000/paste
+
+{
+  "content": "123"
+}
+
+### 获取粘贴板
+GET http://localhost:8000/paste?id=c5f3ba4b-305a-4a3f-bc8b-9393816ffa79

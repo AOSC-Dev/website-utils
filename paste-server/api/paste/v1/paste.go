@@ -8,10 +8,10 @@ import (
 type NewPasteReq struct {
 	g.Meta   `path:"/paste" tags:"Paste" method:"post" summary:"创建粘贴板"`
 	Title    string             `json:"title"`
-	Language string             `v:"required" json:"language"`
+	Language string             `json:"language" d:"plaintext"`
 	Content  string             `v:"required" json:"content"`
 	FileList *ghttp.UploadFiles `json:"fileList"`
-	ExpDate  string             `v:"required" json:"expDate"`
+	ExpDate  string             `json:"expDate"`
 }
 type NewPasteRes struct {
 	g.Meta `mime:"text/html" example:"string"`
@@ -24,11 +24,12 @@ type PasteReq struct {
 }
 
 type PasteContent struct {
-	Title    string   `v:"required" json:"title"`
-	Language string   `v:"required" json:"language"`
-	Content  string   `v:"required" json:"content"`
-	ExpDate  string   `json:"expDate"`
-	FileList []string `json:"fileList"`
+	Title     string   `v:"required" json:"title"`
+	Language  string   `v:"required" json:"language"`
+	Content   string   `v:"required" json:"content"`
+	ExpDate   string   `json:"expDate"`
+	ExpDateTs int64    `json:"expDateTs"`
+	FileList  []string `json:"fileList"`
 }
 type PasteRes struct {
 	g.Meta `mime:"text/html" example:"string"`
