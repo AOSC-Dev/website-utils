@@ -12,6 +12,7 @@ gf
 main
 main.exe
 output/
+out/
 manifest/output/
 temp/
 temp.yaml

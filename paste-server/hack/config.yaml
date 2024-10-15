@@ -1,0 +1,6 @@
+gfcli:
+  build:
+    name: "aosc-portal-paste"
+    system: "linux"
+    arch: "arm64"
+    path: "output"
