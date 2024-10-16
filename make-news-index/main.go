@@ -39,7 +39,7 @@ func main() {
 
 	// var homeNews []NewsItem
 
-	newsDir := "./news"
+	newsDir := "../content/news"
 	newsList, err := os.ReadDir(newsDir)
 	// 需要对newsList进行倒序排序，时间最大的最靠前
 	if err != nil {
