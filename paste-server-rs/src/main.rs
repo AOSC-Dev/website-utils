@@ -190,7 +190,10 @@ async fn post_paste(
                 expiration = field.text().await?.parse()?;
             }
             Some("f") => {
-                f.push(field.bytes().await?);
+                f.push((
+                    field.file_name().map(|x| x.to_string()),
+                    field.bytes().await?,
+                ));
             }
             Some("t") => {
                 title = field.text().await?;
@@ -209,9 +212,11 @@ async fn post_paste(
         content_file.write_all(&b).await?;
     }
 
-    for (i, c) in f.iter().enumerate() {
-        let mut f = tokio::fs::File::create(i.to_string()).await?;
-        f.write_all(&c).await?;
+    for (i, (file_name, file)) in f.iter().enumerate() {
+        let i = i.to_string();
+        let mut f = tokio::fs::File::create(file_name.as_ref().unwrap_or(&i)).await?;
+
+        f.write_all(&file).await?;
     }
 
     let time = OffsetDateTime::from_unix_timestamp(expiration)?;
