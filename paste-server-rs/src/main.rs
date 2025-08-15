@@ -232,7 +232,7 @@ async fn post_paste(
         }
     }
 
-    if files.is_empty() || content.is_none() {
+    if files.is_empty() && content.is_none() {
         return Err(anyhow!("Upload data is empty").into());
     }
 
