@@ -77,7 +77,7 @@ async fn main() {
 
     let db = PgPool::connect(&pg)
         .await
-        .expect(&format!("Failed to connect database: {pg}"));
+        .unwrap_or_else(|_| panic!("Failed to connect database: {pg}"));
 
     let db = Arc::new(db);
 
@@ -212,11 +212,14 @@ async fn post_paste(
         content_file.write_all(&b).await?;
     }
 
+    let mut files = vec![];
+
     for (i, (file_name, file)) in f.iter().enumerate() {
         let i = i.to_string();
-        let mut f = tokio::fs::File::create(file_name.as_ref().unwrap_or(&i)).await?;
-
-        f.write_all(&file).await?;
+        let file_name = file_name.as_ref().unwrap_or(&i);
+        let mut f = tokio::fs::File::create(file_name).await?;
+        f.write_all(file).await?;
+        files.push(file_name.to_string());
     }
 
     let time = OffsetDateTime::from_unix_timestamp(expiration)?;
@@ -257,10 +260,9 @@ async fn post_paste(
         language: language.to_string(),
         expiration,
         content_path: content_path.to_string(),
-        attachments: (0..f.len())
+        attachments: files
             .into_iter()
-            .map(|x| dir.join(&x.to_string()))
-            .flatten()
+            .flat_map(|x| dir.join(&x))
             .map(|x| x.to_string())
             .collect::<Vec<_>>(),
     }))
@@ -307,8 +309,7 @@ async fn get_paste(
         content_path,
         attachments: a
             .iter()
-            .map(|x| dir.join(&x.filename))
-            .flatten()
+            .flat_map(|x| dir.join(&x.filename))
             .map(|x| x.to_string())
             .collect::<Vec<_>>(),
     }))
