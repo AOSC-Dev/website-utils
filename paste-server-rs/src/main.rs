@@ -209,22 +209,22 @@ async fn post_paste(
 
     while let Some(field) = form.next_field().await? {
         match field.name() {
-            Some("c") => {
+            Some("c") | Some("content") => {
                 content = Some(field.bytes().await?);
             }
-            Some("l") => {
+            Some("l") | Some("language") => {
                 language = Cow::Owned(field.text().await?);
             }
-            Some("e") => {
+            Some("e") | Some("expiration") => {
                 expiration = field.text().await?.parse()?;
             }
-            Some("f") => {
+            Some("f") | Some("file") => {
                 files.push((
                     field.file_name().map(|x| x.to_string()),
                     field.bytes().await?,
                 ));
             }
-            Some("t") => {
+            Some("t") | Some("title") => {
                 title = field.text().await?;
             }
             Some(x) => return Err(anyhow!("Unsupport field {x}").into()),
