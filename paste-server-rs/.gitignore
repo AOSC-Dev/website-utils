@@ -1,2 +1,4 @@
 .sqlx/
 target/
+.env
+contents/

@@ -187,7 +187,7 @@ async fn post_paste(
         time,
         language.to_string(),
     )
-    .fetch_one(&*db)
+    .execute(&*db)
     .await?;
 
     if !f.is_empty() {
@@ -204,14 +204,17 @@ async fn post_paste(
         }
     }
 
-    let dir = Url::parse(&local_url).unwrap().join(&uuid.to_string())?;
-    let content_path = dir.join("content")?.to_string();
+    let dir = Url::parse(&format!("http://{local_url}"))
+        .unwrap()
+        .join(&format!("{uuid}/"))?;
+
+    let content_path = dir.join("content")?;
 
     Ok(Json::from(PostPaste {
         id: uuid.to_string(),
         language: language.to_string(),
         expiration,
-        content_path,
+        content_path: content_path.to_string(),
         attachments: (0..f.len())
             .into_iter()
             .map(|x| dir.join(&x.to_string()))
@@ -248,7 +251,9 @@ async fn get_paste(
     .fetch_all(&*db)
     .await?;
 
-    let dir = Url::parse(&local_url).unwrap().join(&id.to_string())?;
+    let dir = Url::parse(&format!("http://{local_url}"))
+        .unwrap()
+        .join(&format!("{uuid}/"))?;
 
     let content_path = dir.join("content")?.to_string();
 
