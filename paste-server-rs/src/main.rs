@@ -262,10 +262,10 @@ async fn post_paste(
     .await?;
 
     if !f.is_empty() {
-        for (index, _) in f.iter().enumerate() {
+        for name in &files {
             let id = sqlx::query_scalar!(
                 r#"INSERT INTO attachments (filename, paste_id) VALUES ($1, $2) RETURNING id"#,
-                index.to_string(),
+                name,
                 uuid
             )
             .fetch_one(&*db)
