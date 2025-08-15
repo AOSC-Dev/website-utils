@@ -25,7 +25,7 @@ use sqlx::{
 };
 use tokio::{io::AsyncWriteExt, time::sleep};
 use tower_http::services::ServeDir;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 use url::Url;
 
@@ -102,6 +102,7 @@ async fn main() {
     .expect("A task failed");
 }
 
+#[derive(Debug)]
 struct PasteResponse {
     id: Uuid,
     title: Option<String>,
@@ -147,6 +148,8 @@ async fn clean_expiration(db: &Pool<Postgres>, dir: &std::path::Path) -> io::Res
 
         for i in paste {
             if i.expiration.as_utc() < SystemTime::now() {
+                info!("Deleting id: {} from db: {i:?}", i.id);
+
                 sqlx::query!("DELETE FROM paste WHERE id = $1", i.id)
                     .execute(db)
                     .await
@@ -156,7 +159,8 @@ async fn clean_expiration(db: &Pool<Postgres>, dir: &std::path::Path) -> io::Res
                     .execute(db)
                     .await
                     .map_err(io::Error::other)?;
-
+                
+                info!("Deleting id: {} dir", i.id);
                 tokio::fs::remove_dir_all(dir.join(i.id.to_string())).await?;
             }
         }
