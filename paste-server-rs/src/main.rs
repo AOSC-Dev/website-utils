@@ -64,6 +64,47 @@ struct AppState {
     local_url: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Message {
+    success: bool,
+    msg: Value,
+}
+
+#[derive(Debug)]
+struct PasteResponse {
+    id: Uuid,
+    title: Option<String>,
+    expiration: PrimitiveDateTime,
+    language: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct GetPasteMessage {
+    id: String,
+    title: Option<String>,
+    expiration: i64,
+    language: String,
+    attachments: Vec<String>,
+    content_path: String,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+struct Attachment {
+    id: i32,
+    filename: String,
+    paste_id: Uuid,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PostPasteMessage {
+    id: String,
+    language: String,
+    expiration: i64,
+    content_path: String,
+    attachments: Vec<String>,
+}
+
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
@@ -110,47 +151,6 @@ async fn main() {
         clean_expiration(&db, &content_dir)
     )
     .expect("A task failed");
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Message {
-    success: bool,
-    msg: Value,
-}
-
-#[derive(Debug)]
-struct PasteResponse {
-    id: Uuid,
-    title: Option<String>,
-    expiration: PrimitiveDateTime,
-    language: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct GetPasteMessage {
-    id: String,
-    title: Option<String>,
-    expiration: i64,
-    language: String,
-    attachments: Vec<String>,
-    content_path: String,
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
-struct Attachment {
-    id: i32,
-    filename: String,
-    paste_id: Uuid,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct PostPasteMessage {
-    id: String,
-    language: String,
-    expiration: i64,
-    content_path: String,
-    attachments: Vec<String>,
 }
 
 async fn clean_expiration(db: &Pool<Postgres>, dir: &std::path::Path) -> io::Result<()> {
@@ -205,7 +205,7 @@ async fn post_paste(
         .timestamp();
 
     let mut title = "".to_string();
-    let mut f = vec![];
+    let mut files = vec![];
 
     while let Some(field) = form.next_field().await? {
         match field.name() {
@@ -219,7 +219,7 @@ async fn post_paste(
                 expiration = field.text().await?.parse()?;
             }
             Some("f") => {
-                f.push((
+                files.push((
                     field.file_name().map(|x| x.to_string()),
                     field.bytes().await?,
                 ));
@@ -232,7 +232,7 @@ async fn post_paste(
         }
     }
 
-    if f.is_empty() || content.is_none() {
+    if files.is_empty() || content.is_none() {
         return Err(anyhow!("Upload data is empty").into());
     }
 
@@ -245,14 +245,14 @@ async fn post_paste(
         content_file.write_all(&b).await?;
     }
 
-    let mut files = vec![];
+    let mut files_name = vec![];
 
-    for (i, (file_name, file)) in f.iter().enumerate() {
+    for (i, (file_name, file)) in files.iter().enumerate() {
         let i = i.to_string();
         let file_name = file_name.as_ref().unwrap_or(&i);
         let mut f = tokio::fs::File::create(file_name).await?;
         f.write_all(file).await?;
-        files.push(file_name.to_string());
+        files_name.push(file_name.to_string());
     }
 
     let time = OffsetDateTime::from_unix_timestamp(expiration)?;
@@ -268,7 +268,7 @@ async fn post_paste(
     .execute(&*db)
     .await?;
 
-    for name in &files {
+    for name in &files_name {
         let id = sqlx::query_scalar!(
             r#"INSERT INTO attachments (filename, paste_id) VALUES ($1, $2) RETURNING id"#,
             name,
@@ -293,7 +293,7 @@ async fn post_paste(
             language: language.to_string(),
             expiration,
             content_path: content_path.to_string(),
-            attachments: files
+            attachments: files_name
                 .into_iter()
                 .flat_map(|x| dir.join(&x))
                 .map(|x| x.to_string())
