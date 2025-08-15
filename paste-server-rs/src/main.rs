@@ -1,4 +1,10 @@
-use std::{borrow::Cow, path::PathBuf, sync::Arc};
+use std::{
+    borrow::Cow,
+    io,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use anyhow::{Context, anyhow};
 use axum::{
@@ -17,7 +23,7 @@ use sqlx::{
         time::{OffsetDateTime, PrimitiveDateTime},
     },
 };
-use tokio::io::AsyncWriteExt;
+use tokio::{io::AsyncWriteExt, time::sleep};
 use tower_http::services::ServeDir;
 use tracing::{debug, error};
 use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
@@ -73,6 +79,8 @@ async fn main() {
         .await
         .expect(&format!("Failed to connect database: {pg}"));
 
+    let db = Arc::new(db);
+
     let serve_dir = ServeDir::new(&content_dir);
 
     let router = Router::new()
@@ -80,13 +88,14 @@ async fn main() {
         .route("/{id}", get(get_paste))
         .route("/", post(post_paste))
         .with_state(AppState {
-            db: Arc::new(db),
+            db: db.clone(),
             content_dir,
             local_url: local_url.clone(),
         });
 
     let listener = tokio::net::TcpListener::bind(&local_url).await.unwrap();
-    axum::serve(listener, router).await.unwrap();
+
+    tokio::try_join!(axum::serve(listener, router), clean_expiration(db)).expect("A task failed");
 }
 
 struct PasteResponse {
@@ -120,6 +129,34 @@ struct PostPaste {
     expiration: i64,
     content_path: String,
     attachments: Vec<String>,
+}
+
+async fn clean_expiration(db: Arc<Pool<Postgres>>) -> io::Result<()> {
+    loop {
+        let paste = sqlx::query_as!(
+            PasteResponse,
+            "SELECT id, title, expiration, language FROM paste"
+        )
+        .fetch_all(&*db)
+        .await
+        .map_err(io::Error::other)?;
+
+        for i in paste {
+            if i.expiration.as_utc() < SystemTime::now() {
+                sqlx::query!("DELETE FROM paste WHERE id = $1", i.id)
+                    .execute(&*db)
+                    .await
+                    .map_err(io::Error::other)?;
+
+                sqlx::query!("DELETE FROM attachments WHERE paste_id = $1", i.id)
+                    .execute(&*db)
+                    .await
+                    .map_err(io::Error::other)?;
+            }
+        }
+
+        sleep(Duration::from_secs(1800)).await;
+    }
 }
 
 async fn post_paste(

@@ -22,5 +22,5 @@ sqlx = { version = "0.8", features = [
 ] }
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4.41"
-tower-http = { version = "0.6.1", features = ["fs", "cors"] }
+tower-http = { version = "0.6.1", features = ["fs"] }
 url = "2.5"
