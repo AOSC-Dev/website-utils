@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     io,
     path::PathBuf,
     sync::Arc,
@@ -197,8 +196,7 @@ async fn post_paste(
 ) -> Result<impl IntoResponse, AnyhowError> {
     let uuid = Uuid::new_v4();
     let mut content = None;
-    let mut language = Cow::Borrowed("text");
-
+    let mut language = "text".to_string();
     let mut expiration = Local::now()
         .checked_add_days(Days::new(7))
         .context("Failed to calculate date")?
@@ -213,7 +211,7 @@ async fn post_paste(
                 content = Some(field.bytes().await?);
             }
             Some("l") | Some("language") => {
-                language = Cow::Owned(field.text().await?);
+                language = field.text().await?;
             }
             Some("e") | Some("expiration") => {
                 expiration = field.text().await?.parse()?;
@@ -280,7 +278,7 @@ async fn post_paste(
         uuid,
         title,
         time,
-        language.to_string(),
+        language,
     )
     .execute(&*db)
     .await?;
@@ -307,7 +305,7 @@ async fn post_paste(
         success: true,
         msg: serde_json::to_value(PostPasteMessage {
             id: uuid.to_string(),
-            language: language.to_string(),
+            language,
             expiration,
             content_path: content_path.to_string(),
             attachments: files_name
