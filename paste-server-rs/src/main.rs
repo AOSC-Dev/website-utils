@@ -81,7 +81,7 @@ async fn main() {
 
     let db = Arc::new(db);
 
-    let serve_dir = ServeDir::new(&content_dir);
+    let serve_dir = ServeDir::new(&*content_dir);
 
     let router = Router::new()
         .fallback_service(serve_dir)
@@ -89,13 +89,17 @@ async fn main() {
         .route("/", post(post_paste))
         .with_state(AppState {
             db: db.clone(),
-            content_dir,
+            content_dir: content_dir.to_path_buf(),
             local_url: local_url.clone(),
         });
 
     let listener = tokio::net::TcpListener::bind(&local_url).await.unwrap();
 
-    tokio::try_join!(axum::serve(listener, router), clean_expiration(db)).expect("A task failed");
+    tokio::try_join!(
+        axum::serve(listener, router),
+        clean_expiration(&db, &content_dir)
+    )
+    .expect("A task failed");
 }
 
 struct PasteResponse {
@@ -131,27 +135,29 @@ struct PostPaste {
     attachments: Vec<String>,
 }
 
-async fn clean_expiration(db: Arc<Pool<Postgres>>) -> io::Result<()> {
+async fn clean_expiration(db: &Pool<Postgres>, dir: &std::path::Path) -> io::Result<()> {
     loop {
         let paste = sqlx::query_as!(
             PasteResponse,
             "SELECT id, title, expiration, language FROM paste"
         )
-        .fetch_all(&*db)
+        .fetch_all(db)
         .await
         .map_err(io::Error::other)?;
 
         for i in paste {
             if i.expiration.as_utc() < SystemTime::now() {
                 sqlx::query!("DELETE FROM paste WHERE id = $1", i.id)
-                    .execute(&*db)
+                    .execute(db)
                     .await
                     .map_err(io::Error::other)?;
 
                 sqlx::query!("DELETE FROM attachments WHERE paste_id = $1", i.id)
-                    .execute(&*db)
+                    .execute(db)
                     .await
                     .map_err(io::Error::other)?;
+
+                tokio::fs::remove_dir_all(dir.join(i.id.to_string())).await?;
             }
         }
 
