@@ -239,6 +239,7 @@ async fn post_paste(
     let dir = content_dir.join(uuid.to_string());
     tokio::fs::create_dir_all(&dir).await?;
 
+    let now = SystemTime::now();
     let path = dir.join("content");
     let task: JoinHandle<Result<(), anyhow::Error>> = tokio::spawn(async move {
         let mut content_file = tokio::fs::File::create(path).await?;
@@ -266,9 +267,15 @@ async fn post_paste(
         files_name.push(file_name);
     }
 
+    let len = write_file_tasks.len();
     for task in write_file_tasks {
         task.await??;
     }
+
+    debug!(
+        "write {len} file use: {:?} micros",
+        now.elapsed().map(|e| e.as_micros())
+    );
 
     let time = OffsetDateTime::from_unix_timestamp(expiration)?;
     let time = PrimitiveDateTime::new(time.date(), time.time());
