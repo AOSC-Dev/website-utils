@@ -9,7 +9,7 @@ use std::{
 use anyhow::{Context, anyhow};
 use axum::{
     Json, Router,
-    extract::{Multipart, Path, State},
+    extract::{DefaultBodyLimit, Multipart, Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -100,7 +100,8 @@ async fn main() {
             db: db.clone(),
             content_dir: content_dir.to_path_buf(),
             local_url: local_url.clone(),
-        });
+        })
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024));
 
     let listener = tokio::net::TcpListener::bind(&local_url).await.unwrap();
 
