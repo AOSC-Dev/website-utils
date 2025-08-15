@@ -24,7 +24,7 @@ use sqlx::{
         time::{OffsetDateTime, PrimitiveDateTime},
     },
 };
-use tokio::{io::AsyncWriteExt, time::sleep};
+use tokio::{io::AsyncWriteExt, task::JoinHandle, time::sleep};
 use tower_http::services::ServeDir;
 use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
@@ -127,7 +127,7 @@ async fn main() {
 
     let db = PgPool::connect(&pg)
         .await
-        .unwrap_or_else(|_| panic!("Failed to connect database: {pg}"));
+        .unwrap_or_else(|e| panic!("Failed to connect database: {pg}: {e}"));
 
     let db = Arc::new(db);
 
@@ -201,7 +201,7 @@ async fn post_paste(
 
     let mut expiration = Local::now()
         .checked_add_days(Days::new(7))
-        .context("Failed to calculate days")?
+        .context("Failed to calculate date")?
         .timestamp();
 
     let mut title = "".to_string();
@@ -236,23 +236,40 @@ async fn post_paste(
         return Err(anyhow!("Upload data is empty").into());
     }
 
+    let mut write_file_tasks = vec![];
+
     let dir = content_dir.join(uuid.to_string());
     tokio::fs::create_dir_all(&dir).await?;
 
     let path = dir.join("content");
-    let mut content_file = tokio::fs::File::create(&path).await?;
-    if let Some(b) = content {
-        content_file.write_all(&b).await?;
-    }
+    let task: JoinHandle<Result<(), anyhow::Error>> = tokio::spawn(async move {
+        let mut content_file = tokio::fs::File::create(path).await?;
+        if let Some(b) = content {
+            content_file.write_all(&b).await?;
+        }
+        Ok(())
+    });
+
+    write_file_tasks.push(task);
 
     let mut files_name = vec![];
 
-    for (i, (file_name, file)) in files.iter().enumerate() {
-        let i = i.to_string();
-        let file_name = file_name.as_ref().unwrap_or(&i);
-        let mut f = tokio::fs::File::create(file_name).await?;
-        f.write_all(file).await?;
-        files_name.push(file_name.to_string());
+    for (i, (file_name, file)) in files.into_iter().enumerate() {
+        let file_name = file_name.unwrap_or_else(|| i.to_string());
+        let file_name_clone = file_name.clone();
+
+        let task: JoinHandle<Result<(), anyhow::Error>> = tokio::spawn(async move {
+            let mut f = tokio::fs::File::create(file_name_clone).await?;
+            f.write_all(&file).await?;
+            Ok(())
+        });
+
+        write_file_tasks.push(task);
+        files_name.push(file_name);
+    }
+
+    for task in write_file_tasks {
+        task.await??;
     }
 
     let time = OffsetDateTime::from_unix_timestamp(expiration)?;
