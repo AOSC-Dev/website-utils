@@ -159,31 +159,29 @@ async fn main() {
 
 async fn clean_expiration(db: &Pool<Postgres>, dir: &std::path::Path) -> io::Result<()> {
     loop {
-        let paste = sqlx::query_as!(
+        let expiration = sqlx::query_as!(
             PasteResponse,
-            "SELECT id, title, expiration, language FROM paste"
+            "SELECT id, title, expiration, language FROM paste WHERE expiration < now()"
         )
         .fetch_all(db)
         .await
         .map_err(io::Error::other)?;
 
-        for i in paste {
-            if i.expiration.as_utc() < SystemTime::now() {
-                info!("Deleting id: {} from db: {i:?}", i.id);
+        for i in expiration {
+            info!("Deleting id: {} from db: {i:?}", i.id);
 
-                sqlx::query!("DELETE FROM paste WHERE id = $1", i.id)
-                    .execute(db)
-                    .await
-                    .map_err(io::Error::other)?;
+            sqlx::query!("DELETE FROM paste WHERE id = $1", i.id)
+                .execute(db)
+                .await
+                .map_err(io::Error::other)?;
 
-                sqlx::query!("DELETE FROM attachments WHERE paste_id = $1", i.id)
-                    .execute(db)
-                    .await
-                    .map_err(io::Error::other)?;
+            sqlx::query!("DELETE FROM attachments WHERE paste_id = $1", i.id)
+                .execute(db)
+                .await
+                .map_err(io::Error::other)?;
 
-                info!("Deleting id: {} dir", i.id);
-                tokio::fs::remove_dir_all(dir.join(i.id.to_string())).await?;
-            }
+            info!("Deleting id: {} dir", i.id);
+            tokio::fs::remove_dir_all(dir.join(i.id.to_string())).await?;
         }
 
         sleep(Duration::from_secs(1800)).await;
