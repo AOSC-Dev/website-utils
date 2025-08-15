@@ -1,5 +1,5 @@
 use std::{
-    io,
+    env, io,
     path::PathBuf,
     sync::Arc,
     time::{Duration, SystemTime},
@@ -60,7 +60,7 @@ where
 struct AppState {
     db: Arc<Pool<Postgres>>,
     content_dir: PathBuf,
-    local_url: String,
+    outside_paste_url: Url,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -119,10 +119,13 @@ async fn main() {
         tracing_subscriber::registry().with(fmt::layer()).init();
     }
 
-    let local_url = std::env::var("PASTE_URL").expect("PASTE_URL is not set");
-    let pg = std::env::var("PASTE_DB").expect("PASTE_DB is not set.");
+    let listen_address = env::var("PASTE_LISTEN_ADDRESS").expect("PASTE_LISTEN_ADDRESS is not set");
+    let pg = env::var("PASTE_DB_ADDRESS").expect("PASTE_DB_ADDRESS is not set.");
     let content_dir =
-        PathBuf::from(std::env::var("PASTE_FILE_DIR").expect("PASTE_FILE_DIR is not set."));
+        PathBuf::from(env::var("PASTE_FILE_DIR").expect("PASTE_FILE_DIR is not set."));
+    let outside_url =
+        Url::parse(&env::var("OUTSIDE_PASTE_URL").expect("OUTSIDE_PASTE_URL is not set"))
+            .expect("Failed to parse OUTSIDE_PASTE_URL");
 
     let db = PgPool::connect(&pg)
         .await
@@ -139,11 +142,11 @@ async fn main() {
         .with_state(AppState {
             db: db.clone(),
             content_dir: content_dir.to_path_buf(),
-            local_url: local_url.clone(),
+            outside_paste_url: outside_url,
         })
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024));
 
-    let listener = tokio::net::TcpListener::bind(&local_url).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&listen_address).await.unwrap();
 
     tokio::try_join!(
         axum::serve(listener, router),
@@ -189,7 +192,7 @@ async fn post_paste(
     State(AppState {
         db,
         content_dir,
-        local_url,
+        outside_paste_url,
         ..
     }): State<AppState>,
     mut form: Multipart,
@@ -302,10 +305,7 @@ async fn post_paste(
         debug!("attachments id: {id}");
     }
 
-    let dir = Url::parse(&format!("http://{local_url}"))
-        .unwrap()
-        .join(&format!("{uuid}/"))?;
-
+    let dir = outside_paste_url.join(&format!("{uuid}/"))?;
     let content_path = dir.join("content")?;
 
     Ok(Json::from(Message {
@@ -325,7 +325,11 @@ async fn post_paste(
 }
 
 async fn get_paste(
-    State(AppState { db, local_url, .. }): State<AppState>,
+    State(AppState {
+        db,
+        outside_paste_url,
+        ..
+    }): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, AnyhowError> {
     let uuid = Uuid::parse_str(&id)?;
@@ -351,10 +355,7 @@ async fn get_paste(
     .fetch_all(&*db)
     .await?;
 
-    let dir = Url::parse(&format!("http://{local_url}"))
-        .unwrap()
-        .join(&format!("{uuid}/"))?;
-
+    let dir = outside_paste_url.join(&format!("{uuid}/"))?;
     let content_path = dir.join("content")?.to_string();
 
     Ok(Json::from(Message {
