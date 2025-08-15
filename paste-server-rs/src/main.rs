@@ -60,7 +60,7 @@ where
 struct AppState {
     db: Arc<Pool<Postgres>>,
     content_dir: PathBuf,
-    outside_paste_url: Url,
+    public_paste_url: Url,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -123,9 +123,9 @@ async fn main() {
     let pg = env::var("PASTE_DB_ADDRESS").expect("PASTE_DB_ADDRESS is not set.");
     let content_dir =
         PathBuf::from(env::var("PASTE_FILE_DIR").expect("PASTE_FILE_DIR is not set."));
-    let outside_url =
-        Url::parse(&env::var("OUTSIDE_PASTE_URL").expect("OUTSIDE_PASTE_URL is not set"))
-            .expect("Failed to parse OUTSIDE_PASTE_URL");
+    let public_paste_url =
+        Url::parse(&env::var("PUBLIC_PASTE_URL").expect("PUBLIC_PASTE_URL is not set"))
+            .expect("Failed to parse PUBLIC_PASTE_URL");
 
     let db = PgPool::connect(&pg)
         .await
@@ -142,11 +142,13 @@ async fn main() {
         .with_state(AppState {
             db: db.clone(),
             content_dir: content_dir.to_path_buf(),
-            outside_paste_url: outside_url,
+            public_paste_url,
         })
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024));
 
-    let listener = tokio::net::TcpListener::bind(&listen_address).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&listen_address)
+        .await
+        .unwrap();
 
     tokio::try_join!(
         axum::serve(listener, router),
@@ -192,14 +194,14 @@ async fn post_paste(
     State(AppState {
         db,
         content_dir,
-        outside_paste_url,
+        public_paste_url: outside_paste_url,
         ..
     }): State<AppState>,
     mut form: Multipart,
 ) -> Result<impl IntoResponse, AnyhowError> {
     let uuid = Uuid::new_v4();
     let mut content = None;
-    let mut language = "text".to_string();
+    let mut language = "plaintext".to_string();
     let mut expiration = Local::now()
         .checked_add_days(Days::new(7))
         .context("Failed to calculate date")?
@@ -327,7 +329,7 @@ async fn post_paste(
 async fn get_paste(
     State(AppState {
         db,
-        outside_paste_url,
+        public_paste_url: outside_paste_url,
         ..
     }): State<AppState>,
     Path(id): Path<String>,
