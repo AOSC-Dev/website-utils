@@ -137,6 +137,7 @@ struct GetPasteMessage {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct Attachment {
     id: i32,
     filename: String,
@@ -197,10 +198,12 @@ async fn post_paste(
     let uuid = Uuid::new_v4();
     let mut content = None;
     let mut language = Cow::Borrowed("text");
+
     let mut expiration = Local::now()
         .checked_add_days(Days::new(7))
-        .context("Failed to calc days")?
+        .context("Failed to calculate days")?
         .timestamp();
+
     let mut title = "".to_string();
     let mut f = vec![];
 
@@ -227,6 +230,10 @@ async fn post_paste(
             Some(x) => return Err(anyhow!("Unsupport field {x}").into()),
             None => {}
         }
+    }
+
+    if f.is_empty() || content.is_none() {
+        return Err(anyhow!("Upload data is empty").into());
     }
 
     let dir = content_dir.join(uuid.to_string());
@@ -261,18 +268,16 @@ async fn post_paste(
     .execute(&*db)
     .await?;
 
-    if !f.is_empty() {
-        for name in &files {
-            let id = sqlx::query_scalar!(
-                r#"INSERT INTO attachments (filename, paste_id) VALUES ($1, $2) RETURNING id"#,
-                name,
-                uuid
-            )
-            .fetch_one(&*db)
-            .await?;
+    for name in &files {
+        let id = sqlx::query_scalar!(
+            r#"INSERT INTO attachments (filename, paste_id) VALUES ($1, $2) RETURNING id"#,
+            name,
+            uuid
+        )
+        .fetch_one(&*db)
+        .await?;
 
-            debug!("attachments id: {id}");
-        }
+        debug!("attachments id: {id}");
     }
 
     let dir = Url::parse(&format!("http://{local_url}"))
