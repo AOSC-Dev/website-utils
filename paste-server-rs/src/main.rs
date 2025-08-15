@@ -193,11 +193,7 @@ async fn get_content(
     State(AppState { content_dir, .. }): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, AnyhowError> {
-    let f = content_dir.join(id).join("content");
-    dbg!(&f);
-    let s = tokio::fs::read_to_string(f).await?;
-
-    Ok(s)
+    Ok(tokio::fs::read_to_string(content_dir.join(id).join("content")).await?)
 }
 
 async fn post_paste(
