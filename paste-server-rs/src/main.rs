@@ -139,6 +139,7 @@ async fn main() {
         .fallback_service(serve_dir)
         .route("/{id}", get(get_paste))
         .route("/", post(post_paste))
+        .route("/{uuid}/content", get(get_content))
         .with_state(AppState {
             db: db.clone(),
             content_dir: content_dir.to_path_buf(),
@@ -186,6 +187,17 @@ async fn clean_expiration(db: &Pool<Postgres>, dir: &std::path::Path) -> io::Res
 
         sleep(Duration::from_secs(1800)).await;
     }
+}
+
+async fn get_content(
+    State(AppState { content_dir, .. }): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, AnyhowError> {
+    let f = content_dir.join(id).join("content");
+    dbg!(&f);
+    let s = tokio::fs::read_to_string(f).await?;
+
+    Ok(s)
 }
 
 async fn post_paste(
