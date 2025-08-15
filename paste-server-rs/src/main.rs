@@ -15,7 +15,8 @@ use axum::{
     routing::{get, post},
 };
 use chrono::{Days, Local};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::{
     PgPool, Pool, Postgres,
     types::{
@@ -35,7 +36,15 @@ pub struct AnyhowError(anyhow::Error);
 impl IntoResponse for AnyhowError {
     fn into_response(self) -> Response {
         error!("Returning internal server error for {}", self.0);
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("{}", self.0)).into_response()
+
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json::from(Message {
+                success: false,
+                msg: self.0.to_string().into(),
+            }),
+        )
+            .into_response()
     }
 }
 
@@ -102,6 +111,12 @@ async fn main() {
     .expect("A task failed");
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Message {
+    success: bool,
+    msg: Value,
+}
+
 #[derive(Debug)]
 struct PasteResponse {
     id: Uuid,
@@ -110,8 +125,8 @@ struct PasteResponse {
     language: String,
 }
 
-#[derive(Debug, Serialize)]
-struct PasteResult {
+#[derive(Debug, Serialize, Deserialize)]
+struct GetPasteMessage {
     id: String,
     title: Option<String>,
     expiration: i64,
@@ -127,8 +142,8 @@ struct Attachment {
     paste_id: Uuid,
 }
 
-#[derive(Debug, Serialize)]
-struct PostPaste {
+#[derive(Debug, Serialize, Deserialize)]
+struct PostPasteMessage {
     id: String,
     language: String,
     expiration: i64,
@@ -159,7 +174,7 @@ async fn clean_expiration(db: &Pool<Postgres>, dir: &std::path::Path) -> io::Res
                     .execute(db)
                     .await
                     .map_err(io::Error::other)?;
-                
+
                 info!("Deleting id: {} dir", i.id);
                 tokio::fs::remove_dir_all(dir.join(i.id.to_string())).await?;
             }
@@ -265,16 +280,19 @@ async fn post_paste(
 
     let content_path = dir.join("content")?;
 
-    Ok(Json::from(PostPaste {
-        id: uuid.to_string(),
-        language: language.to_string(),
-        expiration,
-        content_path: content_path.to_string(),
-        attachments: files
-            .into_iter()
-            .flat_map(|x| dir.join(&x))
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>(),
+    Ok(Json::from(Message {
+        success: true,
+        msg: serde_json::to_value(PostPasteMessage {
+            id: uuid.to_string(),
+            language: language.to_string(),
+            expiration,
+            content_path: content_path.to_string(),
+            attachments: files
+                .into_iter()
+                .flat_map(|x| dir.join(&x))
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>(),
+        })?,
     }))
 }
 
@@ -297,7 +315,7 @@ async fn get_paste(
     .fetch_one(&*db)
     .await?;
 
-    let a = sqlx::query_as!(
+    let attachments = sqlx::query_as!(
         Attachment,
         "SELECT id, filename, paste_id FROM attachments WHERE paste_id = $1",
         id
@@ -311,16 +329,19 @@ async fn get_paste(
 
     let content_path = dir.join("content")?.to_string();
 
-    Ok(Json::from(PasteResult {
-        id: id.to_string(),
-        title,
-        expiration: expiration.assume_utc().unix_timestamp(),
-        language,
-        content_path,
-        attachments: a
-            .iter()
-            .flat_map(|x| dir.join(&x.filename))
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>(),
+    Ok(Json::from(Message {
+        success: true,
+        msg: serde_json::to_value(GetPasteMessage {
+            id: id.to_string(),
+            title,
+            expiration: expiration.assume_utc().unix_timestamp(),
+            language,
+            content_path,
+            attachments: attachments
+                .iter()
+                .flat_map(|x| dir.join(&x.filename))
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>(),
+        })?,
     }))
 }
