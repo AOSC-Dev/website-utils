@@ -113,10 +113,17 @@ async fn main() {
 
     if let Ok(filter) = env_log {
         tracing_subscriber::registry()
-            .with(fmt::layer().with_filter(filter))
+            .with(
+                fmt::layer()
+                    .with_line_number(true)
+                    .with_file(true)
+                    .with_filter(filter),
+            )
             .init();
     } else {
-        tracing_subscriber::registry().with(fmt::layer()).init();
+        tracing_subscriber::registry()
+            .with(fmt::layer().with_file(true).with_line_number(true))
+            .init();
     }
 
     let listen_address = env::var("PASTE_LISTEN_ADDRESS").expect("PASTE_LISTEN_ADDRESS is not set");
@@ -200,7 +207,7 @@ async fn post_paste(
     State(AppState {
         db,
         content_dir,
-        public_paste_url: outside_paste_url,
+        public_paste_url,
         ..
     }): State<AppState>,
     mut form: Multipart,
@@ -313,7 +320,7 @@ async fn post_paste(
         debug!("attachments id: {id}");
     }
 
-    let dir = outside_paste_url.join(&format!("{uuid}/"))?;
+    let dir = public_paste_url.join(&format!("{uuid}/"))?;
     let content_path = dir.join("content")?;
 
     Ok(Json::from(Message {
