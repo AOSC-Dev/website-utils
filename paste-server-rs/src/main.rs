@@ -57,7 +57,7 @@ struct PasteResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct GetPasteMessage {
+struct PasteMessage {
     id: String,
     title: Option<String>,
     expiration: i64,
@@ -72,15 +72,6 @@ struct Attachment {
     id: i32,
     filename: String,
     paste_id: Uuid,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct PostPasteMessage {
-    id: String,
-    language: String,
-    expiration: i64,
-    content_path: String,
-    attachments: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -128,6 +119,12 @@ impl IntoResponse for ServerError {
                 .into_response(),
         }
     }
+}
+
+macro_rules! bail {
+    ($($arg:tt)+) => {
+        return Err(anyhow!($($arg)+).into())
+    };
 }
 
 #[tokio::main]
@@ -269,13 +266,13 @@ async fn post_paste(
             Some("t") | Some("title") => {
                 title = field.text().await?;
             }
-            Some(x) => return Err(anyhow!("Unsupported field {x}").into()),
+            Some(x) => bail!("Unsupport field {x}"),
             None => {}
         }
     }
 
     if files.is_empty() && content.is_none() {
-        return Err(anyhow!("Uploaded data is empty").into());
+        bail!("Upload data is empty");
     }
 
     let mut write_file_tasks = vec![];
@@ -351,10 +348,11 @@ async fn post_paste(
 
     Ok(Json::from(Message {
         code: 0,
-        msg: serde_json::to_value(PostPasteMessage {
+        msg: serde_json::to_value(PasteMessage {
             id: uuid.to_string(),
             language,
             expiration,
+            title: Some(title),
             content_path: content_path.to_string(),
             attachments: files_name
                 .into_iter()
@@ -401,7 +399,7 @@ async fn get_paste(
 
     Ok(Json::from(Message {
         code: 0,
-        msg: serde_json::to_value(GetPasteMessage {
+        msg: serde_json::to_value(PasteMessage {
             id: id.to_string(),
             title,
             expiration: expiration.assume_utc().unix_timestamp(),
