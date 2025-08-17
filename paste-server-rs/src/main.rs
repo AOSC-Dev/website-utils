@@ -1,5 +1,6 @@
 use std::{
     env, io,
+    num::ParseIntError,
     path::PathBuf,
     sync::Arc,
     time::{Duration, SystemTime},
@@ -8,7 +9,7 @@ use std::{
 use anyhow::{Context, anyhow};
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Multipart, Path, State},
+    extract::{DefaultBodyLimit, Multipart, Path, State, multipart::MultipartError},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -23,38 +24,16 @@ use sqlx::{
         time::{OffsetDateTime, PrimitiveDateTime},
     },
 };
-use tokio::{io::AsyncWriteExt, task::JoinHandle, time::sleep};
+use time::error::ComponentRange;
+use tokio::{
+    io::AsyncWriteExt,
+    task::{JoinError, JoinHandle},
+    time::sleep,
+};
 use tower_http::services::ServeDir;
 use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 use url::Url;
-
-// learned from https://github.com/tokio-rs/axum/blob/main/examples/anyhow-error-response/src/main.rs
-pub struct AnyhowError(anyhow::Error);
-
-impl IntoResponse for AnyhowError {
-    fn into_response(self) -> Response {
-        error!("Returning internal server error for {}", self.0);
-
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json::from(Message {
-                success: false,
-                msg: self.0.to_string().into(),
-            }),
-        )
-            .into_response()
-    }
-}
-
-impl<E> From<E> for AnyhowError
-where
-    E: Into<anyhow::Error>,
-{
-    fn from(err: E) -> Self {
-        Self(err.into())
-    }
-}
 
 #[derive(Debug, Clone)]
 struct AppState {
@@ -65,7 +44,7 @@ struct AppState {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Message {
-    success: bool,
+    code: u16,
     msg: Value,
 }
 
@@ -102,6 +81,53 @@ struct PostPasteMessage {
     expiration: i64,
     content_path: String,
     attachments: Vec<String>,
+}
+
+#[derive(Debug, thiserror::Error)]
+enum ServerError {
+    #[error(transparent)]
+    Multipart(#[from] MultipartError),
+    #[error(transparent)]
+    AnyhowError(#[from] anyhow::Error),
+    #[error(transparent)]
+    IoError(#[from] io::Error),
+    #[error(transparent)]
+    ParseIntError(#[from] ParseIntError),
+    #[error(transparent)]
+    ComponentRange(#[from] ComponentRange),
+    #[error(transparent)]
+    JoinError(#[from] JoinError),
+    #[error(transparent)]
+    Sqlx(#[from] sqlx::Error),
+    #[error(transparent)]
+    Url(#[from] url::ParseError),
+    #[error(transparent)]
+    Value(#[from] serde_json::Error),
+    #[error(transparent)]
+    Uuid(#[from] uuid::Error),
+}
+
+impl IntoResponse for ServerError {
+    fn into_response(self) -> Response {
+        match self {
+            ServerError::Multipart(multipart_error) => (
+                multipart_error.status(),
+                Json::from(Message {
+                    code: multipart_error.status().as_u16(),
+                    msg: multipart_error.body_text().into(),
+                }),
+            )
+                .into_response(),
+            e => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json::from(Message {
+                    code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                    msg: e.to_string().into(),
+                }),
+            )
+                .into_response(),
+        }
+    }
 }
 
 #[tokio::main]
@@ -199,7 +225,7 @@ async fn clean_expiration(db: &Pool<Postgres>, dir: &std::path::Path) -> io::Res
 async fn get_content(
     State(AppState { content_dir, .. }): State<AppState>,
     Path(id): Path<String>,
-) -> Result<impl IntoResponse, AnyhowError> {
+) -> Result<impl IntoResponse, ServerError> {
     Ok(tokio::fs::read_to_string(content_dir.join(id).join("content")).await?)
 }
 
@@ -211,7 +237,7 @@ async fn post_paste(
         ..
     }): State<AppState>,
     mut form: Multipart,
-) -> Result<impl IntoResponse, AnyhowError> {
+) -> Result<impl IntoResponse, ServerError> {
     let uuid = Uuid::new_v4();
     let mut content = None;
     let mut language = "plaintext".to_string();
@@ -324,7 +350,7 @@ async fn post_paste(
     let content_path = dir.join("content")?;
 
     Ok(Json::from(Message {
-        success: true,
+        code: 0,
         msg: serde_json::to_value(PostPasteMessage {
             id: uuid.to_string(),
             language,
@@ -346,7 +372,7 @@ async fn get_paste(
         ..
     }): State<AppState>,
     Path(id): Path<String>,
-) -> Result<impl IntoResponse, AnyhowError> {
+) -> Result<impl IntoResponse, ServerError> {
     let uuid = Uuid::parse_str(&id)?;
 
     let PasteResponse {
@@ -374,7 +400,7 @@ async fn get_paste(
     let content_path = dir.join("content")?.to_string();
 
     Ok(Json::from(Message {
-        success: true,
+        code: 0,
         msg: serde_json::to_value(GetPasteMessage {
             id: id.to_string(),
             title,
