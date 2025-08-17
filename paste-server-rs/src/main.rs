@@ -202,7 +202,7 @@ async fn clean_expiration(db: &Pool<Postgres>, dir: &std::path::Path) -> io::Res
         .map_err(io::Error::other)?;
 
         for i in expiration {
-            info!("Deleting id: {} from db: {i:?}", i.id);
+            info!("Deleting paste ID {} from database {i:?}", i.id);
 
             sqlx::query!("DELETE FROM paste WHERE id = $1", i.id)
                 .execute(db)
@@ -214,7 +214,7 @@ async fn clean_expiration(db: &Pool<Postgres>, dir: &std::path::Path) -> io::Res
                 .await
                 .map_err(io::Error::other)?;
 
-            info!("Deleting id: {} dir", i.id);
+            info!("Deleting paste directory for ID {}", i.id);
             tokio::fs::remove_dir_all(dir.join(i.id.to_string())).await?;
         }
 
@@ -269,13 +269,13 @@ async fn post_paste(
             Some("t") | Some("title") => {
                 title = field.text().await?;
             }
-            Some(x) => return Err(anyhow!("Unsupport field {x}").into()),
+            Some(x) => return Err(anyhow!("Unsupported field {x}").into()),
             None => {}
         }
     }
 
     if files.is_empty() && content.is_none() {
-        return Err(anyhow!("Upload data is empty").into());
+        return Err(anyhow!("Uploaded data is empty").into());
     }
 
     let mut write_file_tasks = vec![];
@@ -317,7 +317,7 @@ async fn post_paste(
     }
 
     debug!(
-        "write {len} file use: {:?} micros",
+        "Wrote {len} file in {:?} microseconds",
         now.elapsed().map(|e| e.as_micros())
     );
 
@@ -343,7 +343,7 @@ async fn post_paste(
         .fetch_one(&*db)
         .await?;
 
-        debug!("attachments id: {id}");
+        debug!("Attachment ID is {id}");
     }
 
     let dir = public_paste_url.join(&format!("{uuid}/"))?;
