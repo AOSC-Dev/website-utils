@@ -199,20 +199,23 @@ async fn clean_expiration(db: &Pool<Postgres>, dir: &std::path::Path) -> io::Res
         .map_err(io::Error::other)?;
 
         for i in expiration {
+            let mut db = db.begin().await.map_err(io::Error::other)?;
             info!("Deleting paste ID {} from database {i:?}", i.id);
 
             sqlx::query!("DELETE FROM paste WHERE id = $1", i.id)
-                .execute(db)
+                .execute(&mut *db)
                 .await
                 .map_err(io::Error::other)?;
 
             sqlx::query!("DELETE FROM attachments WHERE paste_id = $1", i.id)
-                .execute(db)
+                .execute(&mut *db)
                 .await
                 .map_err(io::Error::other)?;
 
             info!("Deleting paste directory for ID {}", i.id);
             tokio::fs::remove_dir_all(dir.join(i.id.to_string())).await?;
+
+            db.commit().await.map_err(io::Error::other)?;
         }
 
         sleep(Duration::from_secs(1800)).await;
@@ -321,6 +324,8 @@ async fn post_paste(
     let time = OffsetDateTime::from_unix_timestamp(expiration)?;
     let time = PrimitiveDateTime::new(time.date(), time.time());
 
+    let mut db = db.begin().await?;
+
     sqlx::query!(
         r#"INSERT INTO paste VALUES ($1, $2, $3, $4)"#,
         uuid,
@@ -328,7 +333,7 @@ async fn post_paste(
         time,
         language,
     )
-    .execute(&*db)
+    .execute(&mut *db)
     .await?;
 
     for name in &files_name {
@@ -337,7 +342,7 @@ async fn post_paste(
             name,
             uuid
         )
-        .fetch_one(&*db)
+        .fetch_one(&mut *db)
         .await?;
 
         debug!("Attachment ID is {id}");
@@ -345,6 +350,8 @@ async fn post_paste(
 
     let dir = public_paste_url.join(&format!("{uuid}/"))?;
     let content_path = dir.join("content")?;
+
+    db.commit().await?;
 
     Ok(Json::from(Message {
         code: 0,
