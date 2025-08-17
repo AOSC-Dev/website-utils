@@ -9,6 +9,7 @@ use std::{
 use anyhow::{Context, anyhow};
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::{DefaultBodyLimit, Multipart, Path, State, multipart::MultipartError},
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -100,6 +101,7 @@ enum ServerError {
 
 impl IntoResponse for ServerError {
     fn into_response(self) -> Response {
+        error!("Got error: {}", self);
         match self {
             ServerError::Multipart(multipart_error) => (
                 multipart_error.status(),
@@ -162,7 +164,6 @@ async fn main() {
         .unwrap_or_else(|e| panic!("Failed to connect database: {pg}: {e}"));
 
     let db = Arc::new(db);
-
     let serve_dir = ServeDir::new(&*content_dir);
 
     let router = Router::new()
@@ -278,48 +279,22 @@ async fn post_paste(
         bail!("Uploaded data is empty");
     }
 
-    let mut write_file_tasks = vec![];
-
     let dir = content_dir.join(uuid.to_string());
     tokio::fs::create_dir_all(&dir).await?;
+    let dirc = dir.clone();
 
-    let now = SystemTime::now();
-    let path = dir.join("content");
-    let task: JoinHandle<Result<(), anyhow::Error>> = tokio::spawn(async move {
-        let mut content_file = tokio::fs::File::create(path).await?;
-        if let Some(b) = content {
-            content_file.write_all(&b).await?;
+    let files_name = match write_upload_file(content, dir, files).await {
+        Ok(res) => res,
+        Err(e) => {
+            error!("Failed to write upload file: {e} will revert.");
+            // Revert
+            if let Err(e) = tokio::fs::remove_dir_all(dirc).await {
+                error!("Revert remove dir got error: {}", e);
+            }
+
+            return Err(e);
         }
-        Ok(())
-    });
-
-    write_file_tasks.push(task);
-
-    let mut files_name = vec![];
-
-    for (i, (file_name, file)) in files.into_iter().enumerate() {
-        let file_name = file_name.unwrap_or_else(|| i.to_string());
-        let file_name_clone = file_name.clone();
-
-        let task: JoinHandle<Result<(), anyhow::Error>> = tokio::spawn(async move {
-            let mut f = tokio::fs::File::create(file_name_clone).await?;
-            f.write_all(&file).await?;
-            Ok(())
-        });
-
-        write_file_tasks.push(task);
-        files_name.push(file_name);
-    }
-
-    let len = write_file_tasks.len();
-    for task in write_file_tasks {
-        task.await??;
-    }
-
-    debug!(
-        "Wrote {len} file in {:?} microseconds",
-        now.elapsed().map(|e| e.as_micros())
-    );
+    };
 
     let time = OffsetDateTime::from_unix_timestamp(expiration)?;
     let time = PrimitiveDateTime::new(time.date(), time.time());
@@ -368,6 +343,52 @@ async fn post_paste(
                 .collect::<Vec<_>>(),
         })?,
     }))
+}
+
+async fn write_upload_file(
+    content: Option<Bytes>,
+    dir: PathBuf,
+    files: Vec<(Option<String>, axum::body::Bytes)>,
+) -> Result<Vec<String>, ServerError> {
+    let mut write_file_tasks = vec![];
+
+    let now = SystemTime::now();
+    let content_path = dir.join("content");
+
+    let task: JoinHandle<Result<(), anyhow::Error>> = tokio::spawn(async move {
+        let mut content_file = tokio::fs::File::create(content_path).await?;
+        if let Some(b) = content {
+            content_file.write_all(&b).await?;
+        }
+        Ok(())
+    });
+
+    write_file_tasks.push(task);
+    let mut files_name = vec![];
+    for (i, (file_name, file)) in files.into_iter().enumerate() {
+        let file_name = file_name.unwrap_or_else(|| i.to_string());
+        let file_path = dir.join(&file_name);
+
+        let task: JoinHandle<Result<(), anyhow::Error>> = tokio::spawn(async move {
+            let mut f = tokio::fs::File::create(file_path).await?;
+            f.write_all(&file).await?;
+            Ok(())
+        });
+
+        write_file_tasks.push(task);
+        files_name.push(file_name);
+    }
+    let len = write_file_tasks.len();
+    for task in write_file_tasks {
+        task.await??;
+    }
+
+    debug!(
+        "Wrote {len} file in {:?} microseconds",
+        now.elapsed().map(|e| e.as_micros())
+    );
+
+    Ok(files_name)
 }
 
 async fn get_paste(
