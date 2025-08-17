@@ -266,13 +266,13 @@ async fn post_paste(
             Some("t") | Some("title") => {
                 title = field.text().await?;
             }
-            Some(x) => bail!("Unsupport field {x}"),
+            Some(x) => bail!("Unsupported field {x}"),
             None => {}
         }
     }
 
     if files.is_empty() && content.is_none() {
-        bail!("Upload data is empty");
+        bail!("Uploaded data is empty");
     }
 
     let mut write_file_tasks = vec![];
