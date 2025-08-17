@@ -15,17 +15,10 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use chrono::{Days, Local};
+use chrono::{DateTime, Days, Local, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::{
-    PgPool, Pool, Postgres,
-    types::{
-        Uuid,
-        time::{OffsetDateTime, PrimitiveDateTime},
-    },
-};
-use time::error::ComponentRange;
+use sqlx::{PgPool, Pool, Postgres, types::Uuid};
 use tokio::{
     io::AsyncWriteExt,
     task::{JoinError, JoinHandle},
@@ -53,7 +46,7 @@ struct Message {
 struct PasteResponse {
     id: Uuid,
     title: Option<String>,
-    expiration: PrimitiveDateTime,
+    expiration: NaiveDateTime,
     language: String,
 }
 
@@ -85,8 +78,6 @@ enum ServerError {
     IoError(#[from] io::Error),
     #[error(transparent)]
     ParseIntError(#[from] ParseIntError),
-    #[error(transparent)]
-    ComponentRange(#[from] ComponentRange),
     #[error(transparent)]
     JoinError(#[from] JoinError),
     #[error(transparent)]
@@ -296,8 +287,8 @@ async fn post_paste(
         }
     };
 
-    let time = OffsetDateTime::from_unix_timestamp(expiration)?;
-    let time = PrimitiveDateTime::new(time.date(), time.time());
+    let time = DateTime::from_timestamp(expiration, 0).context("Failed to parse expiration")?;
+    let time = NaiveDateTime::new(time.date_naive(), time.time());
 
     let mut db = db.begin().await?;
 
@@ -430,7 +421,7 @@ async fn get_paste(
         msg: serde_json::to_value(PasteMessage {
             id: id.to_string(),
             title,
-            expiration: expiration.assume_utc().unix_timestamp(),
+            expiration: expiration.and_utc().timestamp(),
             language,
             content_path,
             attachments: attachments

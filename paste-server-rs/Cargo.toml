@@ -17,7 +17,7 @@ sqlx = { version = "0.8", features = [
     "postgres",
     "migrate",
     "uuid",
-    "time",
+    "chrono",
 ] }
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4.41"
@@ -25,4 +25,3 @@ tower-http = { version = "0.6.1", features = ["fs"] }
 url = "2.5"
 serde_json = "1"
 thiserror = "2"
-time = "0.3"
