@@ -18,7 +18,7 @@ use axum::{
 use chrono::{DateTime, Days, Local, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::{PgPool, Pool, Postgres, types::Uuid};
+use sqlx::{PgPool, Pool, Postgres, Transaction, types::Uuid};
 use tokio::{
     io::AsyncWriteExt,
     task::{JoinError, JoinHandle},
@@ -272,25 +272,102 @@ async fn post_paste(
 
     let dir = content_dir.join(uuid.to_string());
     tokio::fs::create_dir_all(&dir).await?;
-    let dirc = dir.clone();
 
-    let files_name = match write_upload_file(content, dir, files).await {
+    let (files_name, dir, content_path) = match write_file_and_database(
+        content,
+        public_paste_url,
+        &dir,
+        uuid,
+        &language,
+        expiration,
+        &title,
+        files,
+        db.begin().await?,
+    )
+    .await
+    {
         Ok(res) => res,
         Err(e) => {
             error!("Failed to write upload file: {e} will revert.");
+
             // Revert
-            if let Err(e) = tokio::fs::remove_dir_all(dirc).await {
+            if let Err(e) = tokio::fs::remove_dir_all(dir).await {
                 error!("Revert remove dir got error: {}", e);
             }
 
-            return Err(e);
+            return Err(e.into());
         }
     };
 
+    Ok(Json::from(Message {
+        code: 0,
+        msg: serde_json::to_value(PasteMessage {
+            id: uuid.to_string(),
+            language,
+            expiration,
+            title: Some(title),
+            content_path: content_path.to_string(),
+            attachments: files_name
+                .into_iter()
+                .flat_map(|x| dir.join(&x))
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>(),
+        })?,
+    }))
+}
+
+async fn write_file_and_database(
+    content: Option<Bytes>,
+    public_paste_url: Url,
+    dir: &std::path::Path,
+    uuid: Uuid,
+    language: &String,
+    expiration: i64,
+    title: &String,
+    files: Vec<(Option<String>, Bytes)>,
+    mut db: Transaction<'static, Postgres>,
+) -> Result<(Vec<String>, Url, Url), ServerError> {
+    let mut write_file_tasks = vec![];
+    let now = SystemTime::now();
+    let content_path = dir.join("content");
+
+    let task: JoinHandle<Result<(), anyhow::Error>> = tokio::spawn(async move {
+        let mut content_file = tokio::fs::File::create(content_path).await?;
+        if let Some(b) = content {
+            content_file.write_all(&b).await?;
+        }
+        Ok(())
+    });
+
+    write_file_tasks.push(task);
+    let mut files_name = vec![];
+
+    for (i, (file_name, file)) in files.into_iter().enumerate() {
+        let file_name = file_name.unwrap_or_else(|| i.to_string());
+        let file_path = dir.join(&file_name);
+
+        let task: JoinHandle<Result<(), anyhow::Error>> = tokio::spawn(async move {
+            let mut f = tokio::fs::File::create(file_path).await?;
+            f.write_all(&file).await?;
+            Ok(())
+        });
+
+        write_file_tasks.push(task);
+        files_name.push(file_name);
+    }
+
+    let len = write_file_tasks.len();
+    for task in write_file_tasks {
+        task.await??;
+    }
+
+    debug!(
+        "Wrote {len} file in {:?} microseconds",
+        now.elapsed().map(|e| e.as_micros())
+    );
+
     let time = DateTime::from_timestamp(expiration, 0).context("Failed to parse expiration")?;
     let time = NaiveDateTime::new(time.date_naive(), time.time());
-
-    let mut db = db.begin().await?;
 
     sqlx::query!(
         r#"INSERT INTO paste VALUES ($1, $2, $3, $4)"#,
@@ -319,67 +396,7 @@ async fn post_paste(
 
     db.commit().await?;
 
-    Ok(Json::from(Message {
-        code: 0,
-        msg: serde_json::to_value(PasteMessage {
-            id: uuid.to_string(),
-            language,
-            expiration,
-            title: Some(title),
-            content_path: content_path.to_string(),
-            attachments: files_name
-                .into_iter()
-                .flat_map(|x| dir.join(&x))
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>(),
-        })?,
-    }))
-}
-
-async fn write_upload_file(
-    content: Option<Bytes>,
-    dir: PathBuf,
-    files: Vec<(Option<String>, axum::body::Bytes)>,
-) -> Result<Vec<String>, ServerError> {
-    let mut write_file_tasks = vec![];
-
-    let now = SystemTime::now();
-    let content_path = dir.join("content");
-
-    let task: JoinHandle<Result<(), anyhow::Error>> = tokio::spawn(async move {
-        let mut content_file = tokio::fs::File::create(content_path).await?;
-        if let Some(b) = content {
-            content_file.write_all(&b).await?;
-        }
-        Ok(())
-    });
-
-    write_file_tasks.push(task);
-    let mut files_name = vec![];
-    for (i, (file_name, file)) in files.into_iter().enumerate() {
-        let file_name = file_name.unwrap_or_else(|| i.to_string());
-        let file_path = dir.join(&file_name);
-
-        let task: JoinHandle<Result<(), anyhow::Error>> = tokio::spawn(async move {
-            let mut f = tokio::fs::File::create(file_path).await?;
-            f.write_all(&file).await?;
-            Ok(())
-        });
-
-        write_file_tasks.push(task);
-        files_name.push(file_name);
-    }
-    let len = write_file_tasks.len();
-    for task in write_file_tasks {
-        task.await??;
-    }
-
-    debug!(
-        "Wrote {len} file in {:?} microseconds",
-        now.elapsed().map(|e| e.as_micros())
-    );
-
-    Ok(files_name)
+    Ok((files_name, dir, content_path))
 }
 
 async fn get_paste(
