@@ -18,7 +18,7 @@ use axum::{
 use chrono::{DateTime, Days, Local, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::{PgPool, Pool, Postgres, Transaction, types::Uuid};
+use sqlx::{PgPool, Pool, Postgres, types::Uuid};
 use tokio::{
     io::AsyncWriteExt,
     task::{JoinError, JoinHandle},
@@ -282,20 +282,20 @@ async fn post_paste(
         expiration,
         &title,
         files,
-        db.begin().await?,
+        &db,
     )
     .await
     {
         Ok(res) => res,
         Err(e) => {
-            error!("Failed to write upload file: {e} will revert.");
+            error!("Failed to write upload file: {e}; will revert.");
 
             // Revert
             if let Err(e) = tokio::fs::remove_dir_all(dir).await {
                 error!("Revert remove dir got error: {}", e);
             }
 
-            return Err(e.into());
+            return Err(e);
         }
     };
 
@@ -316,17 +316,19 @@ async fn post_paste(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn write_file_and_database(
     content: Option<Bytes>,
     public_paste_url: Url,
     dir: &std::path::Path,
     uuid: Uuid,
-    language: &String,
+    language: &str,
     expiration: i64,
-    title: &String,
+    title: &str,
     files: Vec<(Option<String>, Bytes)>,
-    mut db: Transaction<'static, Postgres>,
+    db: &Pool<Postgres>,
 ) -> Result<(Vec<String>, Url, Url), ServerError> {
+    let mut db = db.begin().await?;
     let mut write_file_tasks = vec![];
     let now = SystemTime::now();
     let content_path = dir.join("content");
@@ -402,7 +404,7 @@ async fn write_file_and_database(
 async fn get_paste(
     State(AppState {
         db,
-        public_paste_url: outside_paste_url,
+        public_paste_url,
         ..
     }): State<AppState>,
     Path(id): Path<String>,
@@ -430,7 +432,7 @@ async fn get_paste(
     .fetch_all(&*db)
     .await?;
 
-    let dir = outside_paste_url.join(&format!("{uuid}/"))?;
+    let dir = public_paste_url.join(&format!("{uuid}/"))?;
     let content_path = dir.join("content")?.to_string();
 
     Ok(Json::from(Message {
