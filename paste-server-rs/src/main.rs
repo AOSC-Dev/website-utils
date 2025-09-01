@@ -88,6 +88,8 @@ enum ServerError {
     Value(#[from] serde_json::Error),
     #[error(transparent)]
     Uuid(#[from] uuid::Error),
+    #[error("404 Not Found: {0}")]
+    NotFound(String),
 }
 
 impl IntoResponse for ServerError {
@@ -99,6 +101,14 @@ impl IntoResponse for ServerError {
                 Json::from(Message {
                     code: multipart_error.status().as_u16(),
                     msg: multipart_error.body_text().into(),
+                }),
+            )
+                .into_response(),
+            ServerError::NotFound(uuid) => (
+                StatusCode::NOT_FOUND,
+                Json::from(Message {
+                    code: StatusCode::NOT_FOUND.as_u16(),
+                    msg: format!("404 Not found for uuid: {uuid}").into(),
                 }),
             )
                 .into_response(),
@@ -218,7 +228,12 @@ async fn get_content(
     State(AppState { content_dir, .. }): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, ServerError> {
-    Ok(tokio::fs::read_to_string(content_dir.join(id).join("content")).await?)
+    let id_dir = content_dir.join(&id);
+    if !id_dir.exists() {
+        return Err(ServerError::NotFound(id));
+    }
+
+    Ok(tokio::fs::read_to_string(id_dir.join("content")).await?)
 }
 
 async fn post_paste(
@@ -422,7 +437,14 @@ async fn get_paste(
         uuid
     )
     .fetch_one(&*db)
-    .await?;
+    .await
+    .map_err(|e| {
+        if let sqlx::Error::RowNotFound = e {
+            ServerError::NotFound(uuid.to_string())
+        } else {
+            e.into()
+        }
+    })?;
 
     let attachments = sqlx::query_as!(
         Attachment,
