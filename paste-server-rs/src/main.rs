@@ -268,6 +268,10 @@ async fn post_paste(
                 expiration = field.text().await?.parse()?;
             }
             Some("f") | Some("file") => {
+                if field.file_name().is_some_and(|s| s == "content") {
+                    bail!("Uploading files named 'content' is not supported.");
+                }
+
                 files.push((
                     field.file_name().map(|x| x.to_string()),
                     field.bytes().await?,
