@@ -1,0 +1,49 @@
+name: paste-server-rs
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/paste-server-rs.yml'
+      - 'paste-server-rs/**'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/paste-server-rs.yml'
+      - 'paste-server-rs/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            paste-server-rs/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cd paste-server-rs && cargo fmt -- --check
+
+      - name: Lint
+        run: cd paste-server-rs && cargo clippy -- -D warnings
+
+      - name: Build
+        run: cd paste-server-rs && cargo build --verbose --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: paste-server-rs
+          path: paste-server-rs/target/release/paste-server-rs
