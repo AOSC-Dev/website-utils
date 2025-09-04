@@ -1,0 +1,30 @@
+services:
+  app:
+    build: .
+    container_name: paste-server-rs
+    depends_on:
+      - db
+    ports:
+      - "127.0.0.1:2334:2334"
+    volumes:
+      - contents:/app/contents
+    environment:
+      - PASTE_LISTEN_ADDRESS=0.0.0.0:2334
+      - DATABASE_URL=postgresql://postgres:password@db/paste
+      - PASTE_DB_ADDRESS=postgresql://postgres:password@db/paste
+      - PASTE_FILE_DIR=/app/contents
+      - PUBLIC_PASTE_URL=http://localhost:2334
+
+  db:
+    image: postgres:17
+    container_name: paste-db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=paste
+
+volumes:
+  postgres_data:
+  contents:
