@@ -164,6 +164,12 @@ async fn main() {
         .await
         .unwrap_or_else(|e| panic!("Failed to connect database: {pg}: {e}"));
 
+    info!("Running migration...");
+    sqlx::migrate!()
+        .run(&db)
+        .await
+        .expect("Failed to run migration");
+
     let db = Arc::new(db);
     let serve_dir = ServeDir::new(&*content_dir);
 
