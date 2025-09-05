@@ -177,6 +177,8 @@ async fn main() {
         .fallback_service(serve_dir)
         .route("/{id}", get(get_paste))
         .route("/", post(post_paste))
+        .route("/", get(usage_for_homepage))
+        .route("/usage", get(usage_for_route))
         .route("/{uuid}/content", get(get_content))
         .with_state(AppState {
             db: db.clone(),
@@ -240,6 +242,28 @@ async fn get_content(
     }
 
     Ok(tokio::fs::read_to_string(id_dir.join("content")).await?)
+}
+
+async fn usage_for_homepage(
+    State(AppState {
+        public_paste_url, ..
+    }): State<AppState>,
+) -> impl IntoResponse {
+    (StatusCode::BAD_REQUEST, usage(public_paste_url)).into_response()
+}
+
+async fn usage_for_route(
+    State(AppState {
+        public_paste_url, ..
+    }): State<AppState>,
+) -> String {
+    usage(public_paste_url)
+}
+
+fn usage(public_paste_url: Url) -> String {
+    format!(
+        "Welcome to AOSC Paste!\n====\n\nThis public paste service may be accessed from https://aosc.io/paste, or via curl.\n\ncurl usage\n----\n\nTo upload any text to AOSC Paste:\n\n  cmd | curl -F \"c=@-\" {public_paste_url}\n\nTo fetch content of a specific paste:\n\n  curl {public_paste_url}{{uuid}}"
+    )
 }
 
 async fn post_paste(
