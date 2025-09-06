@@ -262,7 +262,7 @@ async fn usage_for_route(
 
 fn usage(public_paste_url: Url) -> String {
     format!(
-        "Welcome to AOSC Paste!\n====\n\nThis public paste service may be accessed from https://aosc.io/paste, or via curl.\n\ncurl usage\n----\n\nTo upload any text to AOSC Paste:\n\n  cmd | curl -F \"c=@-\" {public_paste_url}\n\nTo fetch content of a specific paste:\n\n  curl {public_paste_url}{{uuid}}"
+        "Welcome to AOSC Paste!\n====\n\nThis public paste service may be accessed from https://aosc.io/paste, or via curl.\n\ncurl usage\n----\n\nTo upload any text to AOSC Paste:\n\n  cmd | curl -F \"c=@-\" {public_paste_url}\n\nTo fetch content of a specific paste:\n\n  curl {public_paste_url}{{uuid}}\n"
     )
 }
 
