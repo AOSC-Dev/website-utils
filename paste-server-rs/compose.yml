@@ -10,7 +10,6 @@ services:
       - contents:/app/contents
     environment:
       - PASTE_LISTEN_ADDRESS=0.0.0.0:2334
-      - DATABASE_URL=postgresql://postgres:password@db/paste
       - PASTE_DB_ADDRESS=postgresql://postgres:password@db/paste
       - PASTE_FILE_DIR=/app/contents
       - PUBLIC_PASTE_URL=http://localhost:2334
