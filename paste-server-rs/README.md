@@ -6,12 +6,22 @@
 
 Build:
 ```shell
-docker compose up --build
+docker compose build
+```
+
+Run:
+```shell
+docker compose up
 ```
 
 Test:
 ```shell
 echo "test" | curl -F "c=@-" http://localhost:2334/ | jq
+```
+
+Clean up (including data):
+```shell
+docker compose down -v
 ```
 
 ## Deploy

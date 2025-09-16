@@ -4,8 +4,6 @@ services:
     container_name: paste-server-rs
     depends_on:
       - db
-    ports:
-      - "127.0.0.1:2334:2334"
     volumes:
       - contents:/app/contents
     environment:
@@ -13,6 +11,11 @@ services:
       - PASTE_DB_ADDRESS=postgresql://postgres:password@db/paste
       - PASTE_FILE_DIR=/app/contents
       - PUBLIC_PASTE_URL=http://localhost:2334
+    labels:
+      - "traefik.http.routers.paste.rule=Host(`localhost`)"
+      - "traefik.http.services.paste.loadbalancer.server.port=2334"
+      - "traefik.http.routers.paste.middlewares=cors"
+      - "traefik.http.middlewares.cors.headers.accesscontrolalloworiginlist=*"
 
   db:
     image: postgres:17
@@ -23,6 +26,17 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=paste
+
+  traefik:
+    image: traefik
+    container_name: paste-reverse-proxy
+    command:
+      - "--providers.docker=true"
+      - "--entrypoints.api.address=:2334"
+    ports:
+      - "127.0.0.1:2334:2334"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
 
 volumes:
   postgres_data:
