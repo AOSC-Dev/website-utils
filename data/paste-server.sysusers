@@ -1,2 +1,0 @@
-u aosc-portal-paste - "AOSC Portal pastebin server daemon owner" @LIBEXECDIR@/@PROGPREFIX@paste-server /usr/bin/false
-m aosc-portal-paste www-data
