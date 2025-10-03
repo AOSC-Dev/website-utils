@@ -1,10 +1,10 @@
-website-2023: utilities and daemons
+website: utilities and daemons
 ===
 
 [简体中文自述文件 >>](README.zh-cn.md)
 
 This repository contains utilities and daemons used in conjunction with
-[website-2023](https://github.com/AOSC-Dev/website-2023).
+[website](https://github.com/AOSC-Dev/website).
 
 paste-server-rs
 ---

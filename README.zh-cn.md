@@ -1,9 +1,9 @@
-website-2023 实用工具
+website 实用工具
 ===
 
 [英文自述文件 >>](README.md)
 
-本仓库存放部署 [website-2023](https://github.com/AOSC-Dev/website-2023) 所需的实用工具。
+本仓库存放部署 [website](https://github.com/AOSC-Dev/website) 所需的实用工具。
 
 paste-server-rs
 ---
