@@ -1,5 +1,6 @@
 use std::{
-    env, io,
+    env,
+    io::{self, ErrorKind},
     num::ParseIntError,
     path::PathBuf,
     sync::Arc,
@@ -9,11 +10,11 @@ use std::{
 use anyhow::{Context, anyhow};
 use axum::{
     Json, Router,
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{DefaultBodyLimit, Multipart, Path, State, multipart::MultipartError},
-    http::StatusCode,
+    http::{HeaderMap, HeaderValue, StatusCode, header::CONTENT_DISPOSITION},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::get,
 };
 use chrono::{DateTime, Days, Local, NaiveDateTime};
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,7 @@ use tokio::{
     task::{JoinError, JoinHandle},
     time::sleep,
 };
+use tokio_util::io::ReaderStream;
 use tower_http::services::ServeDir;
 use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
@@ -176,10 +178,10 @@ async fn main() {
     let router = Router::new()
         .fallback_service(serve_dir)
         .route("/{id}", get(get_paste))
-        .route("/", post(post_paste))
-        .route("/", get(usage_for_homepage))
+        .route("/", get(usage_for_homepage).post(post_paste))
         .route("/usage", get(usage_for_route))
         .route("/{uuid}/content", get(get_content))
+        .route("/{uuid}/{file}", get(get_file))
         .with_state(AppState {
             db: db.clone(),
             content_dir: content_dir.to_path_buf(),
@@ -230,6 +232,38 @@ async fn clean_expiration(db: &Pool<Postgres>, dir: &std::path::Path) -> io::Res
 
         sleep(Duration::from_secs(1800)).await;
     }
+}
+
+async fn get_file(
+    State(AppState { content_dir, .. }): State<AppState>,
+    Path((id, file_name)): Path<(String, String)>,
+) -> Result<impl IntoResponse, ServerError> {
+    let id_dir = content_dir.join(&id);
+    if !id_dir.exists() {
+        return Err(ServerError::NotFound(id));
+    }
+
+    let file = match tokio::fs::File::open(id_dir.join(&file_name)).await {
+        Ok(file) => file,
+        Err(err) => {
+            if err.kind() == ErrorKind::NotFound {
+                return Err(ServerError::NotFound(file_name));
+            }
+
+            return Err(err.into());
+        }
+    };
+
+    let stream = ReaderStream::new(file);
+    let body = Body::from_stream(stream);
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("attachment; filename=\"{}\"", file_name)).unwrap(),
+    );
+
+    Ok((headers, body))
 }
 
 async fn get_content(
