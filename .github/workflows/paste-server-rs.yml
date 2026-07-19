@@ -47,7 +47,7 @@ jobs:
         run: cd paste-server-rs && cargo build --verbose --release
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: paste-server-rs
           path: paste-server-rs/target/release/paste-server-rs
